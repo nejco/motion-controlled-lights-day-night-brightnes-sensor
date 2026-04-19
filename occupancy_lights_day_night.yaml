@@ -1,0 +1,141 @@
+blueprint:
+  name: Occupancy Light Control with Day/Night Brightness and Lux Limit
+  description: >
+    Control one or more lights from an occupancy sensor.
+    Supports separate day/night brightness and timeout values,
+    and optionally prevents turning lights on when ambient light
+    is already above a selected lux threshold.
+  domain: automation
+  input:
+    occupancy_sensor:
+      name: Occupancy sensor
+      description: Binary sensor used to detect occupancy/motion.
+      selector:
+        entity:
+          domain: binary_sensor
+
+    target_lights:
+      name: Lights
+      description: Select one or more lights to control.
+      selector:
+        target:
+          entity:
+            domain: light
+
+    day_brightness:
+      name: Day brightness
+      description: Brightness percentage used during daytime.
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    night_brightness:
+      name: Night brightness
+      description: Brightness percentage used during nighttime.
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    day_timeout:
+      name: Day timeout
+      description: Time to wait before turning lights off during daytime.
+      default:
+        minutes: 5
+      selector:
+        duration: {}
+
+    night_timeout:
+      name: Night timeout
+      description: Time to wait before turning lights off during nighttime.
+      default:
+        minutes: 1
+      selector:
+        duration: {}
+
+    lux_sensor:
+      name: Lux sensor
+      description: Optional ambient light sensor.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
+    lux_limit:
+      name: Brightness limit (lux)
+      description: >
+        If a lux sensor is selected and current lux is above this value,
+        lights will not turn on.
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 1
+          unit_of_measurement: lx
+
+mode: restart
+max_exceeded: silent
+
+variables:
+  occupancy_sensor: !input occupancy_sensor
+  target_lights: !input target_lights
+  day_brightness: !input day_brightness
+  night_brightness: !input night_brightness
+  day_timeout: !input day_timeout
+  night_timeout: !input night_timeout
+  lux_sensor: !input lux_sensor
+  lux_limit: !input lux_limit
+
+  is_day: "{{ is_state('sun.sun', 'above_horizon') }}"
+  selected_brightness: "{{ day_brightness if is_day else night_brightness }}"
+  selected_timeout: "{{ day_timeout if is_day else night_timeout }}"
+
+  lux_check_enabled: "{{ lux_sensor != '' }}"
+  current_lux: >
+    {% if lux_check_enabled %}
+      {{ states(lux_sensor) | float(999999) }}
+    {% else %}
+      0
+    {% endif %}
+  lux_ok: >
+    {% if lux_check_enabled %}
+      {{ current_lux <= lux_limit }}
+    {% else %}
+      true
+    {% endif %}
+
+trigger:
+  - platform: state
+    entity_id: !input occupancy_sensor
+    to: "on"
+
+action:
+  - condition: template
+    value_template: "{{ lux_ok }}"
+
+  - service: light.turn_on
+    target: !input target_lights
+    data:
+      brightness_pct: "{{ selected_brightness }}"
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input occupancy_sensor
+        to: "off"
+
+  - delay: "{{ selected_timeout }}"
+
+  - condition: state
+    entity_id: !input occupancy_sensor
+    state: "off"
+
+  - service: light.turn_off
+    target: !input target_lights
