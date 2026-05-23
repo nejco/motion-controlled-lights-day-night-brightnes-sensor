@@ -60,6 +60,22 @@ blueprint:
       selector:
         duration: {}
 
+    use_night_start_time:
+      name: Use fixed night start time
+      description: Enable a custom time when night mode should begin.
+      default: false
+      selector:
+        boolean: {}
+
+    night_mode_start_time:
+      name: Night mode start time
+      description: >
+        Time of day when night mode starts (night brightness + timeout).
+        Night mode ends at sunrise.
+      default: "22:00:00"
+      selector:
+        time: {}
+
     lux_sensor:
       name: Lux sensor
       description: Optional ambient light sensor.
@@ -91,10 +107,23 @@ variables:
   night_brightness: !input night_brightness
   day_timeout: !input day_timeout
   night_timeout: !input night_timeout
+  use_night_start_time: !input use_night_start_time
+  night_mode_start_time: !input night_mode_start_time
   lux_sensor: !input lux_sensor
   lux_limit: !input lux_limit
 
-  is_day: "{{ is_state('sun.sun', 'above_horizon') }}"
+  is_day: >
+    {% if use_night_start_time %}
+      {% set night_started = now() >= today_at(night_mode_start_time) %}
+      {% set next_rising = as_datetime(state_attr('sun.sun', 'next_rising')) %}
+      {% set is_pre_sunrise =
+        is_state('sun.sun', 'below_horizon') and
+        ((next_rising is none) or (next_rising.date() == now().date()))
+      %}
+      {{ not (night_started or is_pre_sunrise) }}
+    {% else %}
+      {{ is_state('sun.sun', 'above_horizon') }}
+    {% endif %}
   selected_brightness: "{{ day_brightness if is_day else night_brightness }}"
   selected_timeout: "{{ day_timeout if is_day else night_timeout }}"
 
