@@ -5,8 +5,28 @@ blueprint:
     Supports separate day/night brightness and timeout values,
     and optionally prevents turning lights on when ambient light
     is already above a selected lux threshold.
+    Can be limited to daytime or nighttime only, so two automations
+    can control different lights by day and by night.
   domain: automation
   input:
+    run_when:
+      name: Run when
+      description: >
+        Limit this automation to daytime or nighttime only. Day and night
+        follow the night settings below (sunset, or the fixed night start
+        time, until sunrise). For separate day and night lights, create two
+        automations with the same night settings.
+      default: always
+      selector:
+        select:
+          options:
+            - label: Always
+              value: always
+            - label: Day only
+              value: day
+            - label: Night only
+              value: night
+
     occupancy_sensor:
       name: Occupancy sensor
       description: Binary sensor used to detect occupancy/motion.
@@ -101,6 +121,7 @@ mode: restart
 max_exceeded: silent
 
 variables:
+  run_when: !input run_when
   occupancy_sensor: !input occupancy_sensor
   target_lights: !input target_lights
   day_brightness: !input day_brightness
@@ -146,10 +167,15 @@ trigger:
     entity_id: !input occupancy_sensor
     to: "on"
 
-action:
+# Checked before a run starts, so a blocked trigger never restarts (and
+# cancels) a run that is still waiting to turn the lights off.
+condition:
+  - condition: template
+    value_template: "{{ run_when == 'always' or (run_when == 'day') == is_day }}"
   - condition: template
     value_template: "{{ lux_ok }}"
 
+action:
   - service: light.turn_on
     target: !input target_lights
     data:
