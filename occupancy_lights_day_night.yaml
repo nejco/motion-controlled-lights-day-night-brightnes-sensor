@@ -13,9 +13,9 @@ blueprint:
       name: Run when
       description: >
         Limit this automation to daytime or nighttime only. Day and night
-        follow the night settings below (sunset, or the fixed night start
-        time, until sunrise). For separate day and night lights, create two
-        automations with the same night settings.
+        follow the night settings below (sunset or the fixed night start
+        time, until sunrise or the fixed night end time). For separate day
+        and night lights, create two automations with the same night settings.
       default: always
       selector:
         select:
@@ -91,8 +91,24 @@ blueprint:
       name: Night mode start time
       description: >
         Time of day when night mode starts (night brightness + timeout).
-        Night mode ends at sunrise.
+        Night mode ends at sunrise, or at the fixed end time below.
       default: "22:00:00"
+      selector:
+        time: {}
+
+    use_night_end_time:
+      name: Use fixed night end time
+      description: >
+        End night mode at a fixed time instead of at sunrise.
+        Only used together with a fixed night start time.
+      default: false
+      selector:
+        boolean: {}
+
+    night_mode_end_time:
+      name: Night mode end time
+      description: Time of day when night mode ends.
+      default: "06:00:00"
       selector:
         time: {}
 
@@ -130,18 +146,24 @@ variables:
   night_timeout: !input night_timeout
   use_night_start_time: !input use_night_start_time
   night_mode_start_time: !input night_mode_start_time
+  use_night_end_time: !input use_night_end_time
+  night_mode_end_time: !input night_mode_end_time
   lux_sensor: !input lux_sensor
   lux_limit: !input lux_limit
 
   is_day: >
     {% if use_night_start_time %}
       {% set night_started = now() >= today_at(night_mode_start_time) %}
-      {% set next_rising = as_datetime(state_attr('sun.sun', 'next_rising')) %}
-      {% set is_pre_sunrise =
-        is_state('sun.sun', 'below_horizon') and
-        ((next_rising is none) or (next_rising.date() == now().date()))
-      %}
-      {{ not (night_started or is_pre_sunrise) }}
+      {% if use_night_end_time %}
+        {% set night_not_over = now() < today_at(night_mode_end_time) %}
+      {% else %}
+        {% set next_rising = as_datetime(state_attr('sun.sun', 'next_rising')) %}
+        {% set night_not_over =
+          is_state('sun.sun', 'below_horizon') and
+          ((next_rising is none) or (next_rising.date() == now().date()))
+        %}
+      {% endif %}
+      {{ not (night_started or night_not_over) }}
     {% else %}
       {{ is_state('sun.sun', 'above_horizon') }}
     {% endif %}
